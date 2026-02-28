@@ -29,11 +29,6 @@ export function AIChatPanel({ isOpen, onToggle }: AIChatPanelProps) {
         /* Expanded state */
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
-            <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700/50 text-sm">
-              <p className="text-slate-300 leading-relaxed">
-                Hi! I'm Recurl AI. How can I help you with your API requests today?
-              </p>
-            </div>
             <div className="mt-auto py-4 opacity-50 text-[10px] text-center uppercase tracking-[0.15em] text-slate-500 font-semibold select-none">
               AI generated responses may be inaccurate
             </div>

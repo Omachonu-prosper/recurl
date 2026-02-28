@@ -12,10 +12,26 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Prevent any panning/zooming gestures */
+button {
+  cursor: pointer;
+}
+
+/* Prevent panning/zooming gestures */
 body {
   touch-action: none;
   overscroll-behavior: none;
+}
+
+/* Disable text selection globally — this is a desktop app, not a webpage */
+* {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Re-enable selection for inputs, textareas, and code/response areas */
+input, textarea, pre, code, [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 ::selection {

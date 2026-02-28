@@ -1,8 +1,16 @@
 use tauri::Manager;
 
 mod workspace;
+mod http_client;
 
-use workspace::{get_last_workspace, create_workspace, list_workspaces, set_active_workspace};
+use http_client::send_http_request;
+
+use workspace::{
+    get_last_workspace, create_workspace, list_workspaces, set_active_workspace,
+    get_collections, create_collection, rename_collection, delete_collection,
+    get_workspace_data, create_request, save_request, rename_request, delete_request, move_request,
+    save_ui_state,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -13,9 +21,20 @@ pub fn run() {
             create_workspace,
             list_workspaces,
             set_active_workspace,
+            get_collections,
+            create_collection,
+            rename_collection,
+            delete_collection,
+            get_workspace_data,
+            create_request,
+            save_request,
+            rename_request,
+            delete_request,
+            move_request,
+            save_ui_state,
+            send_http_request,
         ])
         .setup(|app| {
-            // Reset zoom to 100% on startup
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_zoom(1.0);
             }
