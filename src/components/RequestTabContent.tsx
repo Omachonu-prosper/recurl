@@ -172,6 +172,7 @@ export const EnvVarInput = memo(function EnvVarInput({ value, onChange, placehol
   const [showDropdown, setShowDropdown] = useState(false);
   const [cursorPos, setCursorPos] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const variables = activeEnvironment ? Object.keys(activeEnvironment.variables) : [];
@@ -182,6 +183,13 @@ export const EnvVarInput = memo(function EnvVarInput({ value, onChange, placehol
   const searchStr = match ? match[1].toLowerCase() : "";
   
   const filteredVars = showDropdown ? variables.filter(v => v.toLowerCase().includes(searchStr)) : [];
+
+  // Sync overlay scroll with the input's internal scroll
+  const syncScroll = () => {
+    if (inputRef.current) {
+      setScrollLeft(inputRef.current.scrollLeft);
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (showDropdown && filteredVars.length > 0) {
@@ -216,6 +224,9 @@ export const EnvVarInput = memo(function EnvVarInput({ value, onChange, placehol
     } else {
       setShowDropdown(false);
     }
+
+    // Sync scroll after value change (on next frame when input has updated)
+    requestAnimationFrame(syncScroll);
   };
 
   const insertVariable = (varName: string) => {
@@ -232,6 +243,7 @@ export const EnvVarInput = memo(function EnvVarInput({ value, onChange, placehol
         inputRef.current.focus();
         const newPos = startIdx + varName.length + 4;
         inputRef.current.setSelectionRange(newPos, newPos);
+        syncScroll();
       }
     }, 0);
   };
@@ -267,9 +279,11 @@ export const EnvVarInput = memo(function EnvVarInput({ value, onChange, placehol
   return (
     <div className={`relative ${className || "flex-1 min-w-0"}`}>
       <div className="relative w-full h-full flex items-center">
-        {/* Underlay with colors */}
+        {/* Underlay with colors — scrolls in sync with the input */}
         <div className="absolute inset-0 pointer-events-none px-4 py-2 text-sm font-mono whitespace-pre overflow-hidden flex items-center">
-          {renderValue()}
+          <div style={{ transform: `translateX(-${scrollLeft}px)` }}>
+            {renderValue()}
+          </div>
         </div>
         {/* Actual input */}
         <input 
@@ -278,7 +292,9 @@ export const EnvVarInput = memo(function EnvVarInput({ value, onChange, placehol
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          onClick={(e) => setCursorPos(e.currentTarget.selectionStart || 0)}
+          onKeyUp={syncScroll}
+          onScroll={syncScroll}
+          onClick={(e) => { setCursorPos(e.currentTarget.selectionStart || 0); syncScroll(); }}
           placeholder={type === "password" ? placeholder : undefined}
           spellCheck={false}
           className={`w-full h-full bg-transparent px-4 py-2 text-sm outline-none font-mono relative z-10 ${type === 'password' ? 'text-slate-300 placeholder:text-slate-600' : 'text-transparent caret-slate-300'}`}

@@ -5,11 +5,23 @@ interface ConfirmDialogProps {
   title: string;
   message: string;
   confirmLabel?: string;
+  confirmVariant?: "danger" | "primary";
+  secondaryLabel?: string;
   onConfirm: () => void;
+  onSecondary?: () => void;
   onCancel: () => void;
 }
 
-export function ConfirmDialog({ title, message, confirmLabel = "Delete", onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({
+  title,
+  message,
+  confirmLabel = "Delete",
+  confirmVariant = "danger",
+  secondaryLabel,
+  onConfirm,
+  onSecondary,
+  onCancel,
+}: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -20,6 +32,11 @@ export function ConfirmDialog({ title, message, confirmLabel = "Delete", onConfi
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onCancel]);
+
+  const confirmBg =
+    confirmVariant === "danger"
+      ? "bg-red-600 hover:bg-red-500"
+      : "bg-orange-600 hover:bg-orange-500";
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onCancel}>
@@ -39,8 +56,14 @@ export function ConfirmDialog({ title, message, confirmLabel = "Delete", onConfi
             className="px-4 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">
             Cancel
           </button>
+          {secondaryLabel && onSecondary && (
+            <button onClick={onSecondary}
+              className="px-4 py-1.5 text-xs font-medium text-slate-300 hover:text-slate-100 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors border border-slate-600">
+              {secondaryLabel}
+            </button>
+          )}
           <button onClick={onConfirm}
-            className="px-4 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors">
+            className={`px-4 py-1.5 text-xs font-bold text-white ${confirmBg} rounded-lg transition-colors`}>
             {confirmLabel}
           </button>
         </div>

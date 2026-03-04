@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Navbar } from "./components/Navbar";
 import { Sidebar } from "./components/Sidebar";
 import { RequestEditor } from "./components/RequestEditor";
@@ -29,6 +30,9 @@ function App() {
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
 
   const [confirmCloseTabId, setConfirmCloseTabId] = useState<string | null>(null);
+
+  // ── Window close intercept state ──
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   const [isAiOpen, setIsAiOpen] = useState(true);
   const sidebar = useResizable(240, 180, 400, "horizontal");
@@ -63,6 +67,19 @@ function App() {
     const timer = setTimeout(saveTabState, 300); // debounce
     return () => clearTimeout(timer);
   }, [tabs, activeTabId, activeEnvironmentId, view, workspace, saveTabState]);
+
+  // ─── Intercept window close when there are unsaved changes ───
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+      const hasDirty = tabsRef.current.some(t => t.dirty);
+      if (hasDirty) {
+        event.preventDefault();
+        setShowCloseConfirm(true);
+      }
+      // If no dirty tabs, the close proceeds normally
+    });
+    return () => { unlisten.then(fn => fn()); };
+  }, []);
 
   // ─── Init ───
   useEffect(() => {
@@ -243,6 +260,21 @@ function App() {
     } catch (err) { console.error("Failed to save request:", err); }
   }, [workspace]);
 
+  // ── Save all dirty tabs and then close ──
+  const saveAllDirtyAndClose = useCallback(async () => {
+    const dirtyTabs = tabsRef.current.filter(t => t.dirty && t.type === "request");
+    for (const tab of dirtyTabs) {
+      await handleSaveRequest(tab.id);
+    }
+    setShowCloseConfirm(false);
+    await getCurrentWindow().destroy();
+  }, [handleSaveRequest]);
+
+  const closeWithoutSaving = useCallback(async () => {
+    setShowCloseConfirm(false);
+    await getCurrentWindow().destroy();
+  }, []);
+
   const handleCreateWorkspace = async (name: string) => {
     setIsCreating(true);
     try {
@@ -371,6 +403,19 @@ function App() {
           confirmLabel="Close without saving"
           onConfirm={() => closeTab(confirmCloseTabId)}
           onCancel={() => setConfirmCloseTabId(null)}
+        />
+      )}
+
+      {showCloseConfirm && (
+        <ConfirmDialog
+          title="Unsaved Changes"
+          message="You have unsaved changes. Would you like to save before closing?"
+          confirmLabel="Save All & Close"
+          confirmVariant="primary"
+          secondaryLabel="Close Without Saving"
+          onConfirm={saveAllDirtyAndClose}
+          onSecondary={closeWithoutSaving}
+          onCancel={() => setShowCloseConfirm(false)}
         />
       )}
 
