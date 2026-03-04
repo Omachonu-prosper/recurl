@@ -7,8 +7,9 @@ import { AIChatPanel } from "./components/AIChatPanel";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { EnvironmentModal } from "./components/EnvironmentModal";
 import { useResizable } from "./hooks/useResizable";
-import type { Workspace, SavedRequest, RequestTab, WorkspaceData } from "./types";
+import type { Workspace, SavedRequest, RequestTab, WorkspaceData, Collection, Environment } from "./types";
 
 type AppView = "loading" | "welcome" | "workspace";
 
@@ -20,6 +21,11 @@ function App() {
   const [tabs, setTabs] = useState<RequestTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [requests, setRequests] = useState<Record<string, SavedRequest>>({});
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(null);
+  const [editingEnvironmentId, setEditingEnvironmentId] = useState<string | null>(null);
+  
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
 
   const [confirmCloseTabId, setConfirmCloseTabId] = useState<string | null>(null);
@@ -37,22 +43,26 @@ function App() {
   const activeTabRef = useRef(activeTabId);
   activeTabRef.current = activeTabId;
 
+  const activeEnvRef = useRef(activeEnvironmentId);
+  activeEnvRef.current = activeEnvironmentId;
+
   const saveTabState = useCallback(() => {
     if (!workspace) return;
-    const openTabIds = tabsRef.current.map(t => t.requestId);
+    const openTabIds = tabsRef.current.map(t => t.id);
     invoke("save_ui_state", {
       workspaceId: workspace.id,
       openTabIds,
       activeTabId: activeTabRef.current,
+      activeEnvironmentId: activeEnvRef.current,
     }).catch(err => console.error("Failed to save tab state:", err));
   }, [workspace]);
 
-  // Save tab state whenever tabs or activeTabId change
+  // Save tab state whenever tabs or activeTabId or activeEnv change
   useEffect(() => {
     if (view !== "workspace" || !workspace) return;
     const timer = setTimeout(saveTabState, 300); // debounce
     return () => clearTimeout(timer);
-  }, [tabs, activeTabId, view, workspace, saveTabState]);
+  }, [tabs, activeTabId, activeEnvironmentId, view, workspace, saveTabState]);
 
   // ─── Init ───
   useEffect(() => {
@@ -75,6 +85,9 @@ function App() {
     try {
       const data = await invoke<WorkspaceData>("get_workspace_data", { workspaceId });
       const { ui_state } = data;
+      setCollections(data.collections || []);
+      setEnvironments(data.environments || []);
+      setActiveEnvironmentId(ui_state.active_environment_id || null);
       if (ui_state.open_tab_ids.length > 0) {
         // Build requests map from the saved tab IDs
         const reqMap: Record<string, SavedRequest> = {};
@@ -83,15 +96,18 @@ function App() {
           const req = data.requests.find(r => r.id === tabId);
           if (req) {
             reqMap[req.id] = req;
-            validTabs.push({ requestId: req.id, dirty: false });
+            validTabs.push({ id: req.id, type: "request", dirty: false });
+          } else {
+            const col = data.collections.find(c => c.id === tabId);
+            if (col) validTabs.push({ id: col.id, type: "collection", dirty: false });
           }
         }
         setRequests(reqMap);
         setTabs(validTabs);
         // Restore active tab (or fall back to first)
-        const activeId = ui_state.active_tab_id && reqMap[ui_state.active_tab_id]
+        const activeId = ui_state.active_tab_id && (reqMap[ui_state.active_tab_id] || data.collections.find(c => c.id === ui_state.active_tab_id))
           ? ui_state.active_tab_id
-          : validTabs.length > 0 ? validTabs[0].requestId : null;
+          : validTabs.length > 0 ? validTabs[0].id : null;
         setActiveTabId(activeId);
       }
     } catch (err) { console.error("Failed to load tab state:", err); }
@@ -122,23 +138,23 @@ function App() {
   });
 
   // ─── Request actions ───
-  const closeTab = useCallback((requestId: string) => {
+  const closeTab = useCallback((id: string) => {
     setTabs((prev) => {
-      const newTabs = prev.filter((t) => t.requestId !== requestId);
-      if (activeTabId === requestId) {
-        setActiveTabId(newTabs.length > 0 ? newTabs[newTabs.length - 1].requestId : null);
+      const newTabs = prev.filter((t) => t.id !== id);
+      if (activeTabId === id) {
+        setActiveTabId(newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null);
       }
       return newTabs;
     });
     setConfirmCloseTabId(null);
   }, [activeTabId]);
 
-  const attemptCloseTab = useCallback((requestId: string) => {
-    const tabItem = tabs.find(t => t.requestId === requestId);
+  const attemptCloseTab = useCallback((id: string) => {
+    const tabItem = tabs.find(t => t.id === id);
     if (tabItem && tabItem.dirty) {
-      setConfirmCloseTabId(requestId);
+      setConfirmCloseTabId(id);
     } else {
-      closeTab(requestId);
+      closeTab(id);
     }
   }, [tabs, closeTab]);
 
@@ -163,7 +179,7 @@ function App() {
         collectionId,
       });
       setRequests((prev) => ({ ...prev, [req.id]: req }));
-      setTabs((prev) => [...prev, { requestId: req.id, dirty: false }]);
+      setTabs((prev) => [...prev, { id: req.id, type: "request", dirty: false }]);
       setActiveTabId(req.id);
       setSidebarRefreshKey((k) => k + 1);
     } catch (err) { console.error("Failed to create request:", err); }
@@ -171,10 +187,17 @@ function App() {
 
   const openRequestTab = useCallback((req: SavedRequest) => {
     setRequests((prev) => ({ ...prev, [req.id]: req }));
-    if (!tabs.find((t) => t.requestId === req.id)) {
-      setTabs((prev) => [...prev, { requestId: req.id, dirty: false }]);
+    if (!tabs.find((t) => t.id === req.id)) {
+      setTabs((prev) => [...prev, { id: req.id, type: "request", dirty: false }]);
     }
     setActiveTabId(req.id);
+  }, [tabs]);
+
+  const openCollectionTab = useCallback((col: Collection) => {
+    if (!tabs.find((t) => t.id === col.id)) {
+      setTabs((prev) => [...prev, { id: col.id, type: "collection", dirty: false }]);
+    }
+    setActiveTabId(col.id);
   }, [tabs]);
 
   const handleRequestDeleted = useCallback((requestId: string) => {
@@ -186,12 +209,12 @@ function App() {
     });
   }, [closeTab]);
 
-  const updateRequestLocal = useCallback((requestId: string, updates: Partial<SavedRequest>) => {
+  const updateRequestLocal = useCallback((id: string, updates: Partial<SavedRequest>) => {
     setRequests((prev) => ({
       ...prev,
-      [requestId]: { ...prev[requestId], ...updates },
+      [id]: { ...prev[id], ...updates },
     }));
-    setTabs((prev) => prev.map((t) => t.requestId === requestId ? { ...t, dirty: true } : t));
+    setTabs((prev) => prev.map((t) => t.id === id ? { ...t, dirty: true } : t));
   }, []);
 
   const handleSaveRequest = useCallback(async (requestId: string) => {
@@ -207,9 +230,15 @@ function App() {
         url: req.url,
         body: req.body,
         headers: req.headers,
+        authType: req.auth_type,
+        authToken: req.auth_token,
       });
-      setRequests((prev) => ({ ...prev, [saved.id]: saved }));
-      setTabs((prev) => prev.map((t) => t.requestId === requestId ? { ...t, dirty: false } : t));
+      setRequests((prev) => {
+        const next = { ...prev };
+        next[saved.id] = saved;
+        return next;
+      });
+      setTabs((prev) => prev.map((t) => t.id === requestId ? { ...t, dirty: false } : t));
       setSidebarRefreshKey((k) => k + 1);
     } catch (err) { console.error("Failed to save request:", err); }
   }, [workspace]);
@@ -250,21 +279,35 @@ function App() {
     return <WelcomeScreen onCreateWorkspace={handleCreateWorkspace} isCreating={isCreating} />;
   }
 
-  const activeRequest = activeTabId ? requests[activeTabId] : null;
+  const activeEnvironment = environments.find(e => e.id === activeEnvironmentId) || null;
 
   return (
     <div className="flex flex-col h-screen w-screen bg-[#0f172a] text-slate-200 overflow-hidden">
-      <Navbar workspace={workspace!} onWorkspaceChange={handleWorkspaceChange} />
+      <Navbar 
+        workspace={workspace!} 
+        onWorkspaceChange={handleWorkspaceChange} 
+        environments={environments}
+        activeEnvironmentId={activeEnvironmentId}
+        onEnvironmentSelect={setActiveEnvironmentId}
+        onCreateEnvironment={async (name: string) => {
+          const newEnv = await invoke<Environment>("create_environment", { workspaceId: workspace!.id, name });
+          setEnvironments(prev => [...prev, newEnv]);
+          setActiveEnvironmentId(newEnv.id);
+        }}
+        onEditEnvironment={setEditingEnvironmentId}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         <div style={{ width: sidebar.size, minWidth: 180, maxWidth: 400 }} className="shrink-0 overflow-hidden">
           <Sidebar
             workspaceId={workspace!.id}
             activeRequestId={activeTabId}
+            activeCollectionId={activeTabId}
             onRequestSelect={openRequestTab}
             onRequestCreated={openRequestTab}
             onRequestDeleted={handleRequestDeleted}
             onRequestRenamed={(id, name) => updateRequestLocal(id, { name })}
+            onCollectionSelect={openCollectionTab}
             refreshKey={sidebarRefreshKey}
             key={workspace!.id}
           />
@@ -277,12 +320,19 @@ function App() {
             tabs={tabs}
             activeTabId={activeTabId}
             requests={requests}
-            activeRequest={activeRequest}
+            collections={collections}
+            activeEnvironment={activeEnvironment}
             onTabSelect={setActiveTabId}
             onTabClose={attemptCloseTab}
             onUpdate={updateRequestLocal}
             onSave={handleSaveRequest}
             onNewTab={() => handleNewRequest(null)}
+            onUpdateCollectionAuth={async (colId, authType, authToken) => {
+              try {
+                await invoke("update_collection_auth", { workspaceId: workspace!.id, collectionId: colId, authType, authToken });
+                setCollections(prev => prev.map(c => c.id === colId ? { ...c, auth_type: authType, auth_token: authToken } : c));
+              } catch (err) { console.error(err); }
+            }}
           />
         </div>
 
@@ -311,6 +361,19 @@ function App() {
           onCancel={() => setConfirmCloseTabId(null)}
         />
       )}
+
+      {editingEnvironmentId && workspace && (() => {
+        const env = environments.find(e => e.id === editingEnvironmentId);
+        if (!env) return null;
+        return (
+          <EnvironmentModal
+            environment={env}
+            workspaceId={workspace.id}
+            onClose={() => setEditingEnvironmentId(null)}
+            onUpdate={(updatedEnv) => setEnvironments(prev => prev.map(e => e.id === updatedEnv.id ? updatedEnv : e))}
+          />
+        );
+      })()}
     </div>
   );
 }

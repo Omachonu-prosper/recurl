@@ -10,10 +10,12 @@ import type { SavedRequest, Collection, WorkspaceData } from "../types";
 interface SidebarProps {
   workspaceId: string;
   activeRequestId: string | null;
+  activeCollectionId?: string | null;
   onRequestSelect: (req: SavedRequest) => void;
   onRequestCreated: (req: SavedRequest) => void;
   onRequestDeleted: (requestId: string) => void;
   onRequestRenamed: (requestId: string, newName: string) => void;
+  onCollectionSelect: (col: Collection) => void;
   refreshKey: number;
 }
 
@@ -54,7 +56,7 @@ function ContextMenu({ x, y, items, onClose }: {
   );
 }
 
-export function Sidebar({ workspaceId, activeRequestId, onRequestSelect, onRequestCreated, onRequestDeleted, onRequestRenamed, refreshKey }: SidebarProps) {
+export function Sidebar({ workspaceId, activeRequestId, activeCollectionId, onRequestSelect, onRequestCreated, onRequestDeleted, onRequestRenamed, onCollectionSelect, refreshKey }: SidebarProps) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [requests, setRequests] = useState<SavedRequest[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -198,8 +200,8 @@ export function Sidebar({ workspaceId, activeRequestId, onRequestSelect, onReque
               className={dropTarget === col.id ? "bg-orange-500/10 rounded mx-1" : ""}
             >
               {/* Collection header */}
-              <div className="flex items-center px-3 py-1.5 hover:bg-slate-800/50 cursor-pointer text-sm gap-1.5 group"
-                onClick={() => setCollapsed(p => ({ ...p, [col.id]: !p[col.id] }))}
+              <div className={`flex items-center px-3 py-1.5 hover:bg-slate-800/50 cursor-pointer text-sm gap-1.5 group ${activeCollectionId === col.id ? "bg-slate-800/60 border-r-2 border-blue-500" : ""}`}
+                onClick={() => { setCollapsed(p => ({ ...p, [col.id]: !p[col.id] })); onCollectionSelect(col); }}
                 onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, type: "collection", id: col.id }); }}>
                 {isCollapsed ? <ChevronRight size={14} className="text-slate-500 shrink-0" /> : <ChevronDown size={14} className="text-slate-500 shrink-0" />}
                 {isCollapsed ? <Folder size={16} className="text-blue-400 shrink-0" /> : <FolderOpen size={16} className="text-blue-400 shrink-0" />}
@@ -293,6 +295,7 @@ export function Sidebar({ workspaceId, activeRequestId, onRequestSelect, onReque
       {/* Context Menu */}
       {contextMenu && contextMenu.type === "collection" && (
         <ContextMenu x={contextMenu.x} y={contextMenu.y} onClose={() => setContextMenu(null)} items={[
+          { label: "Open Collection", icon: <FolderOpen size={13} />, onClick: () => { const c = collections.find(c => c.id === contextMenu.id); if (c) onCollectionSelect(c); } },
           { label: "Add Request", icon: <Plus size={13} />, onClick: () => handleNewRequest(contextMenu.id) },
           { label: "Rename", icon: <Pencil size={13} />, onClick: () => { const c = collections.find(c => c.id === contextMenu.id); if (c) { setRenaming({ type: "collection", id: c.id }); setRenameValue(c.name); } } },
           { label: "Delete", icon: <Trash2 size={13} />, onClick: () => {

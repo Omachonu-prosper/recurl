@@ -12,7 +12,8 @@ use workspace::{
     get_last_workspace, create_workspace, list_workspaces, set_active_workspace,
     get_collections, create_collection, rename_collection, delete_collection,
     get_workspace_data, create_request, save_request, rename_request, delete_request, move_request,
-    save_ui_state,
+    save_ui_state, create_environment, update_environment, delete_environment,
+    update_collection_auth,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -28,6 +29,7 @@ pub fn run() {
             create_collection,
             rename_collection,
             delete_collection,
+            update_collection_auth,
             get_workspace_data,
             create_request,
             save_request,
@@ -35,6 +37,9 @@ pub fn run() {
             delete_request,
             move_request,
             save_ui_state,
+            create_environment,
+            update_environment,
+            delete_environment,
             send_http_request,
             cancel_http_request,
         ])

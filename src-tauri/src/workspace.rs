@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use chrono::Utc;
 use uuid::Uuid;
 use tauri::Manager;
+use std::collections::HashMap;
 
 // ─── Data Structures ───
 
@@ -23,26 +24,39 @@ pub struct SavedRequest {
     pub url: String,
     pub body: String,
     pub headers: String,
-    /// None = root level, Some(id) = inside a collection
+    #[serde(default)]
+    pub auth_type: String, // "none", "bearer", "inherit"
+    #[serde(default)]
+    pub auth_token: String,
     pub collection_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
 
-/// serde(deny_unknown_fields) is NOT set, so old data with a "requests"
-/// field inside collections will still deserialize fine (the field is just ignored).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Collection {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub auth_type: String, // "none", "bearer"
+    #[serde(default)]
+    pub auth_token: String,
     pub created_at: String,
 }
 
-/// Persisted UI state (open tabs, active tab, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Environment {
+    pub id: String,
+    pub name: String,
+    pub variables: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UIState {
     pub open_tab_ids: Vec<String>,
     pub active_tab_id: Option<String>,
+    #[serde(default)]
+    pub active_environment_id: Option<String>,
 }
 
 /// Workspace data stored per-workspace on disk.
@@ -53,6 +67,8 @@ pub struct WorkspaceData {
     pub collections: Vec<Collection>,
     #[serde(default)]
     pub requests: Vec<SavedRequest>,
+    #[serde(default)]
+    pub environments: Vec<Environment>,
     #[serde(default)]
     pub ui_state: UIState,
 }
@@ -160,7 +176,13 @@ pub fn get_collections(app_handle: tauri::AppHandle, workspace_id: String) -> Re
 #[tauri::command]
 pub fn create_collection(app_handle: tauri::AppHandle, workspace_id: String, name: String) -> Result<Collection, String> {
     let mut data = load_workspace_data(&app_handle, &workspace_id)?;
-    let collection = Collection { id: Uuid::new_v4().to_string(), name, created_at: Utc::now().to_rfc3339() };
+    let collection = Collection { 
+        id: Uuid::new_v4().to_string(), 
+        name, 
+        auth_type: "none".to_string(),
+        auth_token: String::new(),
+        created_at: Utc::now().to_rfc3339() 
+    };
     data.collections.push(collection.clone());
     save_workspace_data(&app_handle, &workspace_id, &data)?;
     Ok(collection)
@@ -172,6 +194,18 @@ pub fn rename_collection(app_handle: tauri::AppHandle, workspace_id: String, col
     let col = data.collections.iter_mut().find(|c| c.id == collection_id)
         .ok_or_else(|| "Collection not found".to_string())?;
     col.name = name;
+    let updated = col.clone();
+    save_workspace_data(&app_handle, &workspace_id, &data)?;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub fn update_collection_auth(app_handle: tauri::AppHandle, workspace_id: String, collection_id: String, auth_type: String, auth_token: String) -> Result<Collection, String> {
+    let mut data = load_workspace_data(&app_handle, &workspace_id)?;
+    let col = data.collections.iter_mut().find(|c| c.id == collection_id)
+        .ok_or_else(|| "Collection not found".to_string())?;
+    col.auth_type = auth_type;
+    col.auth_token = auth_token;
     let updated = col.clone();
     save_workspace_data(&app_handle, &workspace_id, &data)?;
     Ok(updated)
@@ -214,6 +248,8 @@ pub fn create_request(
         url: String::new(),
         body: String::new(),
         headers: String::new(),
+        auth_type: if collection_id.is_some() { "inherit".to_string() } else { "none".to_string() },
+        auth_token: String::new(),
         collection_id,
         created_at: now.clone(),
         updated_at: now,
@@ -234,6 +270,8 @@ pub fn save_request(
     url: String,
     body: String,
     headers: String,
+    auth_type: String,
+    auth_token: String,
 ) -> Result<SavedRequest, String> {
     let mut data = load_workspace_data(&app_handle, &workspace_id)?;
     let req = data.requests.iter_mut().find(|r| r.id == request_id)
@@ -243,6 +281,8 @@ pub fn save_request(
     req.url = url;
     req.body = body;
     req.headers = headers;
+    req.auth_type = auth_type;
+    req.auth_token = auth_token;
     req.updated_at = Utc::now().to_rfc3339();
     let updated = req.clone();
     save_workspace_data(&app_handle, &workspace_id, &data)?;
@@ -300,9 +340,44 @@ pub fn save_ui_state(
     workspace_id: String,
     open_tab_ids: Vec<String>,
     active_tab_id: Option<String>,
+    active_environment_id: Option<String>,
 ) -> Result<(), String> {
     let mut data = load_workspace_data(&app_handle, &workspace_id)?;
-    data.ui_state = UIState { open_tab_ids, active_tab_id };
+    data.ui_state = UIState { open_tab_ids, active_tab_id, active_environment_id };
+    save_workspace_data(&app_handle, &workspace_id, &data)?;
+    Ok(())
+}
+
+// ─── Environment Commands ───
+
+#[tauri::command]
+pub fn create_environment(app_handle: tauri::AppHandle, workspace_id: String, name: String) -> Result<Environment, String> {
+    let mut data = load_workspace_data(&app_handle, &workspace_id)?;
+    let env = Environment { id: Uuid::new_v4().to_string(), name, variables: HashMap::new() };
+    data.environments.push(env.clone());
+    save_workspace_data(&app_handle, &workspace_id, &data)?;
+    Ok(env)
+}
+
+#[tauri::command]
+pub fn update_environment(app_handle: tauri::AppHandle, workspace_id: String, env_id: String, name: String, variables: HashMap<String, String>) -> Result<Environment, String> {
+    let mut data = load_workspace_data(&app_handle, &workspace_id)?;
+    let env = data.environments.iter_mut().find(|e| e.id == env_id)
+        .ok_or_else(|| "Environment not found".to_string())?;
+    env.name = name;
+    env.variables = variables;
+    let updated = env.clone();
+    save_workspace_data(&app_handle, &workspace_id, &data)?;
+    Ok(updated)
+}
+
+#[tauri::command]
+pub fn delete_environment(app_handle: tauri::AppHandle, workspace_id: String, env_id: String) -> Result<(), String> {
+    let mut data = load_workspace_data(&app_handle, &workspace_id)?;
+    data.environments.retain(|e| e.id != env_id);
+    if data.ui_state.active_environment_id.as_deref() == Some(&env_id) {
+        data.ui_state.active_environment_id = None;
+    }
     save_workspace_data(&app_handle, &workspace_id, &data)?;
     Ok(())
 }
