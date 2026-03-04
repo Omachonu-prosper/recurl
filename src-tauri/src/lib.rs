@@ -3,7 +3,10 @@ use tauri::Manager;
 mod workspace;
 mod http_client;
 
-use http_client::send_http_request;
+use http_client::{send_http_request, cancel_http_request, RequestState};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use std::collections::HashMap;
 
 use workspace::{
     get_last_workspace, create_workspace, list_workspaces, set_active_workspace,
@@ -33,8 +36,10 @@ pub fn run() {
             move_request,
             save_ui_state,
             send_http_request,
+            cancel_http_request,
         ])
         .setup(|app| {
+            app.manage(RequestState(Arc::new(Mutex::new(HashMap::new()))));
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_zoom(1.0);
             }

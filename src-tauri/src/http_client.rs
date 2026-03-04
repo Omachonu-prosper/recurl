@@ -2,6 +2,12 @@ use serde::Serialize;
 use reqwest::{Client, Method, header::{HeaderMap, HeaderName, HeaderValue}};
 use std::time::Instant;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::collections::HashMap;
+use tokio::sync::{Mutex, Notify};
+use tauri::State;
+
+pub struct RequestState(pub Arc<Mutex<HashMap<String, Arc<Notify>>>>);
 
 #[derive(Serialize)]
 pub struct HttpResponseData {
@@ -15,6 +21,8 @@ pub struct HttpResponseData {
 
 #[tauri::command]
 pub async fn send_http_request(
+    state: State<'_, RequestState>,
+    req_id: String,
     method: String,
     url: String,
     body: String,
@@ -49,8 +57,28 @@ pub async fn send_http_request(
         request_builder = request_builder.body(body);
     }
 
+    let notify = Arc::new(Notify::new());
+    {
+        let mut map = state.0.lock().await;
+        map.insert(req_id.clone(), notify.clone());
+    }
+
+    let request_future = request_builder.send();
     let start_time = Instant::now();
-    let response = request_builder.send().await.map_err(|e| e.to_string())?;
+
+    let response_result = tokio::select! {
+        res = request_future => res,
+        _ = notify.notified() => {
+            return Err("Request cancelled".to_string());
+        }
+    };
+
+    {
+        let mut map = state.0.lock().await;
+        map.remove(&req_id);
+    }
+
+    let response = response_result.map_err(|e| e.to_string())?;
     let time_ms = start_time.elapsed().as_millis() as u64;
 
     let status = response.status().as_u16();
@@ -73,4 +101,13 @@ pub async fn send_http_request(
         time_ms,
         size_bytes,
     })
+}
+
+#[tauri::command]
+pub async fn cancel_http_request(state: State<'_, RequestState>, req_id: String) -> Result<(), String> {
+    let mut map = state.0.lock().await;
+    if let Some(notify) = map.remove(&req_id) {
+        notify.notify_one();
+    }
+    Ok(())
 }

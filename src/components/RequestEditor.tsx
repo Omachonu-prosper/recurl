@@ -1,6 +1,9 @@
 import { useState, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, Plus, Save, Send, FileText, Loader2 } from "lucide-react";
+import CodeMirror from "@uiw/react-codemirror";
+import { vscodeDark } from "@uiw/codemirror-theme-vscode";
+import { json } from "@codemirror/lang-json";
+import { X, Plus, Save, Send, FileText } from "lucide-react";
 import { ResizeHandle } from "./ResizeHandle";
 import { useResizable } from "../hooks/useResizable";
 import type { SavedRequest, RequestTab } from "../types";
@@ -51,11 +54,22 @@ export function RequestEditor({ tabs, activeTabId, requests, activeRequest, onTa
     setIsSending(prev => ({ ...prev, [reqId]: true }));
     try {
       const res = await invoke<HttpResponseData>("send_http_request", {
+        reqId: activeRequest.id,
         method: activeRequest.method,
         url: activeRequest.url,
         body: activeRequest.body,
         headers: activeRequest.headers,
       });
+      
+      try {
+        if (res.body) {
+          const parsed = JSON.parse(res.body);
+          res.body = JSON.stringify(parsed, null, 2);
+        }
+      } catch (e) {
+        // Ignore JSON parse errors, leave body as is
+      }
+      
       setResponses(prev => ({ ...prev, [reqId]: res }));
     } catch (err: any) {
       setResponses(prev => ({
@@ -185,11 +199,19 @@ export function RequestEditor({ tabs, activeTabId, requests, activeRequest, onTa
                 placeholder="https://api.example.com/v1/resource"
                 className="flex-1 bg-transparent px-4 py-2 text-sm outline-none placeholder:text-slate-600 min-w-0" />
             </div>
-            <button onClick={handleSend} disabled={isSending[activeRequest.id]}
-              className="bg-orange-600 hover:bg-orange-500 text-white px-5 rounded-lg font-bold text-sm transition-all shadow-lg active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:pointer-events-none">
-              {isSending[activeRequest.id] ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} 
-              Send
-            </button>
+            {isSending[activeRequest.id] ? (
+              <button onClick={() => invoke("cancel_http_request", { reqId: activeRequest.id }).catch(console.error)}
+                className="bg-slate-700 hover:bg-slate-600 text-slate-300 px-5 rounded-lg font-bold text-sm transition-all shadow-lg active:scale-95 flex items-center gap-2 border border-slate-600">
+                <X size={14} className="text-red-400" /> 
+                Cancel
+              </button>
+            ) : (
+              <button onClick={handleSend}
+                className="bg-orange-600 hover:bg-orange-500 text-white px-5 rounded-lg font-bold text-sm transition-all shadow-lg active:scale-95 flex items-center gap-2">
+                <Send size={14} /> 
+                Send
+              </button>
+            )}
           </div>
 
           {/* Payload/Response tabs */}
@@ -207,18 +229,37 @@ export function RequestEditor({ tabs, activeTabId, requests, activeRequest, onTa
             {/* Payload area */}
             <div style={{ height: Math.min(payloadHeight.size, maxPayload), minHeight: 0, maxHeight: maxPayload }} className="shrink-0 overflow-hidden p-4">
               {activePayloadTab === "Body" ? (
-                <textarea
-                  value={activeRequest.body}
-                  onChange={(e) => onUpdate(activeRequest.id, { body: e.target.value })}
-                  placeholder='{\n  "key": "value"\n}'
-                  className="w-full h-full bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-sm font-mono text-slate-300 outline-none resize-none focus:border-orange-500/30 placeholder:text-slate-700"
-                />
+                <div 
+                  className="w-full h-full border border-slate-800 rounded-xl overflow-hidden focus-within:border-orange-500/30 bg-slate-900/50"
+                  onKeyDownCapture={(e) => {
+                    if (e.ctrlKey && e.key === "Enter") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSend();
+                    }
+                  }}
+                >
+                  <CodeMirror
+                    value={activeRequest.body}
+                    extensions={[json()]}
+                    theme={vscodeDark}
+                    onChange={(value) => onUpdate(activeRequest.id, { body: value })}
+                    basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: false }}
+                    className="w-full h-full text-sm [&>.cm-editor]:h-full [&>.cm-editor]:bg-transparent"
+                  />
+                </div>
               ) : activePayloadTab === "Headers" ? (
                 <textarea
                   value={activeRequest.headers}
                   onChange={(e) => onUpdate(activeRequest.id, { headers: e.target.value })}
                   placeholder="Content-Type: application/json"
                   className="w-full h-full bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-sm font-mono text-slate-300 outline-none resize-none focus:border-orange-500/30 placeholder:text-slate-700"
+                  onKeyDown={(e) => {
+                    if (e.ctrlKey && e.key === "Enter") {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
                 />
               ) : (
                 <div className="h-full border border-dashed border-slate-800 rounded-xl flex items-center justify-center text-slate-600 bg-slate-900/20">
@@ -247,15 +288,22 @@ export function RequestEditor({ tabs, activeTabId, requests, activeRequest, onTa
                   <span className="text-[10px] text-slate-600 font-mono">Waiting for request...</span>
                 )}
               </div>
-              <div className="flex-1 overflow-y-auto p-4 font-mono text-sm bg-[#020617]/50 text-slate-500">
+              <div className="flex-1 overflow-hidden font-mono text-sm bg-[#020617]/50 text-slate-500">
                 {responses[activeRequest.id] ? (
                   responses[activeRequest.id].error ? (
-                    <span className="text-red-400">{responses[activeRequest.id].error}</span>
+                    <div className="p-4"><span className="text-red-400">{responses[activeRequest.id].error}</span></div>
                   ) : (
-                    <pre className="text-slate-300 font-mono whitespace-pre-wrap break-all">{responses[activeRequest.id].body}</pre>
+                    <CodeMirror
+                      value={responses[activeRequest.id].body}
+                      extensions={[json()]}
+                      theme={vscodeDark}
+                      readOnly={true}
+                      basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: false }}
+                      className="w-full h-full text-sm [&>.cm-editor]:h-full [&>.cm-editor]:bg-transparent"
+                    />
                   )
                 ) : (
-                  <pre>Send a request to see the response here.</pre>
+                  <div className="p-4"><pre>Send a request to see the response here.</pre></div>
                 )}
               </div>
             </div>
