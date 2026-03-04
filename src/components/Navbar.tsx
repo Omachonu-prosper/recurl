@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Plus, Search, Settings, ChevronDown, Check, FolderOpen } from "lucide-react";
 
@@ -19,7 +19,7 @@ interface NavbarProps {
   onEditEnvironment: (envId: string) => void;
 }
 
-export function Navbar({ workspace, onWorkspaceChange, environments, activeEnvironmentId, onEnvironmentSelect, onCreateEnvironment, onEditEnvironment }: NavbarProps) {
+export const Navbar = memo(function Navbar({ workspace, onWorkspaceChange, environments, activeEnvironmentId, onEnvironmentSelect, onCreateEnvironment, onEditEnvironment }: NavbarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [envDropdownOpen, setEnvDropdownOpen] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -260,4 +260,4 @@ export function Navbar({ workspace, onWorkspaceChange, environments, activeEnvir
       </div>
     </header>
   );
-}
+});

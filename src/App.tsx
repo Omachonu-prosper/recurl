@@ -259,6 +259,27 @@ function App() {
     await loadTabState(ws.id);
   };
 
+  const handleRequestRenamed = useCallback((id: string, name: string) => {
+    updateRequestLocal(id, { name });
+  }, [updateRequestLocal]);
+
+  const handleCreateEnvironment = useCallback(async (name: string) => {
+    if (!workspace) return;
+    const newEnv = await invoke<Environment>("create_environment", { workspaceId: workspace.id, name });
+    setEnvironments(prev => [...prev, newEnv]);
+    setActiveEnvironmentId(newEnv.id);
+  }, [workspace]);
+
+  const handleNewTab = useCallback(() => handleNewRequest(null), [handleNewRequest]);
+
+  const handleUpdateCollectionAuth = useCallback(async (colId: string, authType: string, authToken: string) => {
+    if (!workspace) return;
+    try {
+      await invoke("update_collection_auth", { workspaceId: workspace.id, collectionId: colId, authType, authToken });
+      setCollections(prev => prev.map(c => c.id === colId ? { ...c, auth_type: authType, auth_token: authToken } : c));
+    } catch (err) { console.error(err); }
+  }, [workspace]);
+
   if (view === "loading") {
     return (
       <div className="h-screen w-screen bg-[#0f172a] flex flex-col pt-12">
@@ -289,11 +310,7 @@ function App() {
         environments={environments}
         activeEnvironmentId={activeEnvironmentId}
         onEnvironmentSelect={setActiveEnvironmentId}
-        onCreateEnvironment={async (name: string) => {
-          const newEnv = await invoke<Environment>("create_environment", { workspaceId: workspace!.id, name });
-          setEnvironments(prev => [...prev, newEnv]);
-          setActiveEnvironmentId(newEnv.id);
-        }}
+        onCreateEnvironment={handleCreateEnvironment}
         onEditEnvironment={setEditingEnvironmentId}
       />
 
@@ -306,7 +323,7 @@ function App() {
             onRequestSelect={openRequestTab}
             onRequestCreated={openRequestTab}
             onRequestDeleted={handleRequestDeleted}
-            onRequestRenamed={(id, name) => updateRequestLocal(id, { name })}
+            onRequestRenamed={handleRequestRenamed}
             onCollectionSelect={openCollectionTab}
             refreshKey={sidebarRefreshKey}
             key={workspace!.id}
@@ -326,13 +343,8 @@ function App() {
             onTabClose={attemptCloseTab}
             onUpdate={updateRequestLocal}
             onSave={handleSaveRequest}
-            onNewTab={() => handleNewRequest(null)}
-            onUpdateCollectionAuth={async (colId, authType, authToken) => {
-              try {
-                await invoke("update_collection_auth", { workspaceId: workspace!.id, collectionId: colId, authType, authToken });
-                setCollections(prev => prev.map(c => c.id === colId ? { ...c, auth_type: authType, auth_token: authToken } : c));
-              } catch (err) { console.error(err); }
-            }}
+            onNewTab={handleNewTab}
+            onUpdateCollectionAuth={handleUpdateCollectionAuth}
           />
         </div>
 

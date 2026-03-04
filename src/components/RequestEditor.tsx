@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Plus, X, FileText } from "lucide-react";
 import type { SavedRequest, RequestTab, Collection, Environment } from "../types";
 import { RequestTabContent, methodColor, EnvVarInput } from "./RequestTabContent";
@@ -26,7 +27,7 @@ export interface RequestEditorProps {
   onUpdateCollectionAuth: (id: string, authType: string, authToken: string) => void;
 }
 
-export function RequestEditor({ tabs, activeTabId, requests, collections, activeEnvironment, onTabSelect, onTabClose, onUpdate, onSave, onNewTab, onUpdateCollectionAuth }: RequestEditorProps) {
+export const RequestEditor = memo(function RequestEditor({ tabs, activeTabId, requests, collections, activeEnvironment, onTabSelect, onTabClose, onUpdate, onSave, onNewTab, onUpdateCollectionAuth }: RequestEditorProps) {
 
   // ─── Empty state ───
   if (tabs.length === 0) {
@@ -150,4 +151,4 @@ export function RequestEditor({ tabs, activeTabId, requests, collections, active
       })}
     </div>
   );
-}
+});

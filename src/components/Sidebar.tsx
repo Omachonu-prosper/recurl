@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   FolderPlus, ChevronRight, ChevronDown, Folder, MoreHorizontal,
@@ -56,7 +56,7 @@ function ContextMenu({ x, y, items, onClose }: {
   );
 }
 
-export function Sidebar({ workspaceId, activeRequestId, activeCollectionId, onRequestSelect, onRequestCreated, onRequestDeleted, onRequestRenamed, onCollectionSelect, refreshKey }: SidebarProps) {
+export const Sidebar = memo(function Sidebar({ workspaceId, activeRequestId, activeCollectionId, onRequestSelect, onRequestCreated, onRequestDeleted, onRequestRenamed, onCollectionSelect, refreshKey }: SidebarProps) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [requests, setRequests] = useState<SavedRequest[]>([]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -329,4 +329,4 @@ export function Sidebar({ workspaceId, activeRequestId, activeCollectionId, onRe
       )}
     </div>
   );
-}
+});

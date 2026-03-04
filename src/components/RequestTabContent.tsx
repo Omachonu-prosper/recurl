@@ -1,9 +1,13 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import CodeMirror, { EditorView } from "@uiw/react-codemirror";
 import { vscodeDark } from "@uiw/codemirror-theme-vscode";
 import { json } from "@codemirror/lang-json";
+import { keymap, ViewPlugin, Decoration, type DecorationSet } from "@codemirror/view";
+import { RangeSetBuilder } from "@codemirror/state";
+import { linter, type Diagnostic } from "@codemirror/lint";
+import { parse as jsoncParse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { X, Save, Send } from "lucide-react";
 import { ResizeHandle } from "./ResizeHandle";
 import { useResizable } from "../hooks/useResizable";
@@ -21,6 +25,142 @@ export function methodColor(method: string): string {
   }
 }
 
+
+// ── Comment highlighting (matches VS Code dark theme comment color) ──
+const commentMark = Decoration.mark({ class: "cm-jsonc-comment" });
+
+const commentHighlightTheme = EditorView.baseTheme({
+  ".cm-jsonc-comment, .cm-jsonc-comment span": {
+    color: "#6A9955 !important",
+    fontStyle: "italic",
+  },
+});
+
+// JSONC-aware linter: parses body with jsonc-parser (which understands // comments)
+// and reports actual JSON syntax errors as diagnostics.
+const jsoncLinter = linter((view) => {
+  const doc = view.state.doc.toString();
+  if (!doc.trim()) return []; // Skip empty documents
+
+  const errors: ParseError[] = [];
+  jsoncParse(doc, errors, { allowTrailingComma: true });
+
+  const diagnostics: Diagnostic[] = [];
+  for (const err of errors) {
+    const from = Math.min(err.offset, doc.length);
+    const to = Math.min(err.offset + err.length, doc.length);
+    diagnostics.push({
+      from,
+      to,
+      severity: "error",
+      message: printParseErrorCode(err.error),
+    });
+  }
+  return diagnostics;
+});
+
+// ViewPlugin that scans visible lines and decorates // comments
+const commentHighlighter = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+
+    constructor(view: EditorView) {
+      this.decorations = this.buildDecorations(view);
+    }
+
+    update(update: { docChanged: boolean; viewportChanged: boolean; view: EditorView }) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = this.buildDecorations(update.view);
+      }
+    }
+
+    buildDecorations(view: EditorView): DecorationSet {
+      const builder = new RangeSetBuilder<Decoration>();
+      for (const { from, to } of view.visibleRanges) {
+        for (let pos = from; pos <= to; ) {
+          const line = view.state.doc.lineAt(pos);
+          const trimmed = line.text.trimStart();
+          if (trimmed.startsWith("//")) {
+            const commentStart = line.from + line.text.indexOf("//");
+            builder.add(commentStart, line.to, commentMark);
+          }
+          pos = line.to + 1;
+        }
+      }
+      return builder.finish();
+    }
+  },
+  { decorations: (v) => v.decorations }
+);
+
+// Custom Ctrl+/ toggle comment keymap for the request body editor.
+// Uses // line comments (JSONC style) since the body editor supports JSONC.
+const toggleCommentKeymap = keymap.of([
+  {
+    key: "Ctrl-/",
+    run(view) {
+      const { state } = view;
+      const changes: { from: number; to: number; insert: string }[] = [];
+
+      // Gather all lines touched by selections
+      const lineSet = new Set<number>();
+      for (const range of state.selection.ranges) {
+        const startLine = state.doc.lineAt(range.from).number;
+        const endLine = state.doc.lineAt(range.to).number;
+        for (let ln = startLine; ln <= endLine; ln++) {
+          lineSet.add(ln);
+        }
+      }
+      const lineNumbers = Array.from(lineSet).sort((a, b) => a - b);
+
+      // Determine if we are commenting or uncommenting:
+      // If ALL non-empty lines already start with "//", uncomment; otherwise comment.
+      const lines = lineNumbers.map((ln) => state.doc.line(ln));
+      const nonEmptyLines = lines.filter((l) => l.text.trimStart().length > 0);
+      const allCommented =
+        nonEmptyLines.length > 0 &&
+        nonEmptyLines.every((l) => l.text.trimStart().startsWith("//"));
+
+      if (allCommented) {
+        // Uncomment: remove the first occurrence of "// " or "//" from each line
+        for (const line of lines) {
+          const idx = line.text.indexOf("//");
+          if (idx === -1) continue;
+          // Remove "// " (with trailing space) or just "//"
+          const hasSpace = line.text[idx + 2] === " ";
+          changes.push({
+            from: line.from + idx,
+            to: line.from + idx + 2 + (hasSpace ? 1 : 0),
+            insert: "",
+          });
+        }
+      } else {
+        // Comment: find the minimum indentation among non-empty lines
+        let minIndent = Infinity;
+        for (const line of nonEmptyLines) {
+          const indent = line.text.length - line.text.trimStart().length;
+          if (indent < minIndent) minIndent = indent;
+        }
+        if (!isFinite(minIndent)) minIndent = 0;
+
+        for (const line of lines) {
+          // Insert "// " at the min-indent position for all lines
+          changes.push({
+            from: line.from + Math.min(minIndent, line.text.length),
+            to: line.from + Math.min(minIndent, line.text.length),
+            insert: "// ",
+          });
+        }
+      }
+
+      if (changes.length > 0) {
+        view.dispatch({ changes });
+      }
+      return true;
+    },
+  },
+]);
+
 function resolveEnvVars(text: string, env: Environment | null): string {
   if (!text || !env) return text;
   return text.replace(/\{\{([\w\-]+)\}\}/g, (match, key) => {
@@ -28,7 +168,7 @@ function resolveEnvVars(text: string, env: Environment | null): string {
   });
 }
 
-export function EnvVarInput({ value, onChange, placeholder, onEnter, activeEnvironment, type = "text", className }: { value: string, onChange: (v: string) => void, placeholder?: string, onEnter?: () => void, activeEnvironment: Environment | null, type?: string, className?: string }) {
+export const EnvVarInput = memo(function EnvVarInput({ value, onChange, placeholder, onEnter, activeEnvironment, type = "text", className }: { value: string, onChange: (v: string) => void, placeholder?: string, onEnter?: () => void, activeEnvironment: Environment | null, type?: string, className?: string }) {
   const [showDropdown, setShowDropdown] = useState(false);
   const [cursorPos, setCursorPos] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -162,7 +302,7 @@ export function EnvVarInput({ value, onChange, placeholder, onEnter, activeEnvir
       )}
     </div>
   );
-}
+});
 
 interface RequestTabContentProps {
   req: SavedRequest;
@@ -173,7 +313,7 @@ interface RequestTabContentProps {
   onSave: (id: string) => void;
 }
 
-export function RequestTabContent({ req, isActive, collections, activeEnvironment, onUpdate, onSave }: RequestTabContentProps) {
+export const RequestTabContent = memo(function RequestTabContent({ req, isActive, collections, activeEnvironment, onUpdate, onSave }: RequestTabContentProps) {
   const [activePayloadTab, setActivePayloadTab] = useState("Body");
   const payloadTabs = ["Params", "Auth", "Headers", "Body", "Scripts"];
   const [wrapResponse, setWrapResponse] = useState(false);
@@ -200,6 +340,12 @@ export function RequestTabContent({ req, isActive, collections, activeEnvironmen
 
   const payloadHeight = useResizable(250, 0, maxPayload, "vertical");
 
+  // Memoize the CodeMirror extensions array so it stays referentially stable
+  const bodyEditorExtensions = useMemo(
+    () => [json(), toggleCommentKeymap, commentHighlighter, commentHighlightTheme, jsoncLinter],
+    []
+  );
+
   async function handleSend() {
     setIsSending(true);
     setResponse({
@@ -222,7 +368,12 @@ export function RequestTabContent({ req, isActive, collections, activeEnvironmen
 
       // Parse final URL, body, headers with injected variables
       const finalUrl = resolveEnvVars(req.url, activeEnvironment);
-      const finalBody = resolveEnvVars(req.body, activeEnvironment);
+      // Strip // comment lines from body before sending
+      const strippedBody = req.body
+        .split("\n")
+        .filter(line => !line.trimStart().startsWith("//"))
+        .join("\n");
+      const finalBody = resolveEnvVars(strippedBody, activeEnvironment);
       const finalHeaders = resolveEnvVars(req.headers, activeEnvironment);
 
       // Resolve Auth
@@ -345,7 +496,7 @@ export function RequestTabContent({ req, isActive, collections, activeEnvironmen
               }}>
               <CodeMirror
                 value={req.body}
-                extensions={[json()]}
+                extensions={bodyEditorExtensions}
                 theme={vscodeDark}
                 onChange={(value) => onUpdate(req.id, { body: value })}
                 basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: false }}
@@ -449,7 +600,10 @@ export function RequestTabContent({ req, isActive, collections, activeEnvironmen
               ) : (
                 <CodeMirror
                   value={response.body}
-                  extensions={[json(), ...(wrapResponse ? [EditorView.lineWrapping] : [])]}
+                  extensions={[
+                    json(),
+                    ...(wrapResponse ? [EditorView.lineWrapping] : [])
+                  ]}
                   theme={vscodeDark}
                   readOnly={true}
                   basicSetup={{ lineNumbers: true, foldGutter: true, highlightActiveLine: false }}
@@ -464,4 +618,4 @@ export function RequestTabContent({ req, isActive, collections, activeEnvironmen
       </div>
     </div>
   );
-}
+});
