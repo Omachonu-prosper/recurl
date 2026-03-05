@@ -28,6 +28,8 @@ pub async fn send_http_request(
     url: String,
     body: String,
     headers: String,
+    body_type: String,
+    multipart_body: Vec<super::workspace::MultipartField>,
     auth_type: String,
     auth_token: String,
 ) -> Result<HttpResponseData, String> {
@@ -62,8 +64,48 @@ pub async fn send_http_request(
         }
     }
 
+    // When sending multipart, remove any user-set Content-Type so reqwest
+    // can auto-generate the correct one with the boundary parameter.
+    if body_type == "multipart" {
+        header_map.remove(reqwest::header::CONTENT_TYPE);
+    }
+
     let mut request_builder = client.request(req_method, &url).headers(header_map);
-    if !body.is_empty() {
+    
+    if body_type == "multipart" {
+        let mut form = reqwest::multipart::Form::new();
+        for field in multipart_body {
+            if !field.enabled { continue; }
+            if field.is_file {
+                // Support multiple files: value may contain multiple paths separated by semicolons
+                let paths: Vec<&str> = field.value.split(';').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+                for path_str in paths {
+                    let path = std::path::Path::new(path_str);
+                    if path.exists() {
+                        let file_name = path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file")
+                            .to_string();
+                        let file_bytes = std::fs::read(path).map_err(|e| format!("Failed to read file {}: {}", path_str, e))?;
+
+                        // Detect MIME type from the file extension
+                        let mime = mime_guess::from_path(path)
+                            .first_or_octet_stream()
+                            .to_string();
+
+                        let part = reqwest::multipart::Part::bytes(file_bytes)
+                            .file_name(file_name)
+                            .mime_str(&mime)
+                            .unwrap_or_else(|_| reqwest::multipart::Part::bytes(vec![]).file_name("error"));
+                        form = form.part(field.name.clone(), part);
+                    }
+                }
+            } else {
+                form = form.text(field.name, field.value);
+            }
+        }
+        request_builder = request_builder.multipart(form);
+    } else if !body.is_empty() {
         request_builder = request_builder.body(body);
     }
 

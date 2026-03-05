@@ -7,6 +7,13 @@ export interface Workspace {
   updated_at: string;
 }
 
+export interface MultipartField {
+  name: string;
+  value: string;
+  isFile?: boolean;
+  enabled: boolean;
+}
+
 export interface SavedRequest {
   id: string;
   name: string;
@@ -14,6 +21,8 @@ export interface SavedRequest {
   url: string;
   body: string;
   headers: string;
+  body_type: string; // "json", "multipart"
+  multipart_body: MultipartField[];
   auth_type: string;
   auth_token: string;
   collection_id: string | null;

@@ -12,6 +12,7 @@ import { X, Save, Send } from "lucide-react";
 import { ResizeHandle } from "./ResizeHandle";
 import { useResizable } from "../hooks/useResizable";
 import type { SavedRequest, Collection, Environment } from "../types";
+import { KVEditor } from "./KVEditor";
 import { HttpResponseData } from "./RequestEditor";
 
 export function methodColor(method: string): string {
@@ -332,6 +333,21 @@ interface RequestTabContentProps {
 export const RequestTabContent = memo(function RequestTabContent({ req, isActive, collections, activeEnvironment, onUpdate, onSave }: RequestTabContentProps) {
   const [activePayloadTab, setActivePayloadTab] = useState("Body");
   const payloadTabs = ["Params", "Auth", "Headers", "Body", "Scripts"];
+
+  // ── Structured headers state (prevents re-parse-on-every-render) ──
+  const [headerFields, setHeaderFields] = useState<import("./KVEditor").KVField[]>(() => {
+    if (!req.headers) return [];
+    return req.headers.split("\n").filter(l => l.trim()).map(l => {
+      const [k, ...v] = l.split(":");
+      return { name: k.trim(), value: v.join(":").trim(), enabled: true };
+    });
+  });
+
+  const handleHeaderFieldsChange = useCallback((next: import("./KVEditor").KVField[]) => {
+    setHeaderFields(next);
+    const str = next.filter(f => f.name).map(f => `${f.name}: ${f.value}`).join("\n");
+    onUpdate(req.id, { headers: str });
+  }, [onUpdate, req.id]);
   const [wrapResponse, setWrapResponse] = useState(false);
   const [response, setResponse] = useState<HttpResponseData | null>(null);
   const [isSending, setIsSending] = useState(false);
@@ -391,6 +407,12 @@ export const RequestTabContent = memo(function RequestTabContent({ req, isActive
         .join("\n");
       const finalBody = resolveEnvVars(strippedBody, activeEnvironment);
       const finalHeaders = resolveEnvVars(req.headers, activeEnvironment);
+      
+      const finalMultipartBody = (req.multipart_body || []).map(f => ({
+        ...f,
+        name: resolveEnvVars(f.name, activeEnvironment),
+        value: f.isFile ? f.value : resolveEnvVars(f.value, activeEnvironment)
+      }));
 
       // Resolve Auth
       let finalAuthType = req.auth_type;
@@ -410,6 +432,8 @@ export const RequestTabContent = memo(function RequestTabContent({ req, isActive
         url: finalUrl,
         body: finalBody,
         headers: finalHeaders,
+        bodyType: req.body_type || "json",
+        multipartBody: finalMultipartBody,
         authType: finalAuthType,
         authToken: finalAuthToken,
       });
@@ -439,7 +463,12 @@ export const RequestTabContent = memo(function RequestTabContent({ req, isActive
   }
 
   return (
-    <div style={{ display: isActive ? "flex" : "none" }} className="flex-1 flex-col overflow-hidden">
+    <div style={{ display: isActive ? "flex" : "none" }} className="flex-1 flex-col overflow-hidden"
+      onKeyDownCapture={(e) => {
+        if (e.ctrlKey && e.key === "Enter") {
+          e.preventDefault(); e.stopPropagation(); handleSend();
+        }
+      }}>
       {/* Request name + Save */}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-800/50 bg-[#1e293b]/10 shrink-0">
         <input
@@ -487,14 +516,45 @@ export const RequestTabContent = memo(function RequestTabContent({ req, isActive
         )}
       </div>
 
-      {/* Payload/Response tabs */}
-      <div className="flex border-b border-slate-800 px-4 gap-5 bg-[#0f172a] shrink-0">
+      {/* Payload/Response tabs — Postman-style with inline body type radios */}
+      <div className="flex items-center border-b border-slate-800 px-4 bg-[#0f172a] shrink-0">
         {payloadTabs.map((tab) => (
           <button key={tab} onClick={() => setActivePayloadTab(tab)}
-            className={`py-2 text-xs font-medium border-b-2 transition-all ${activePayloadTab === tab ? "border-orange-500 text-orange-400" : "border-transparent text-slate-500 hover:text-slate-300"}`}>
+            className={`py-2.5 text-xs font-medium border-b-2 transition-all mr-5 ${activePayloadTab === tab ? "border-orange-500 text-orange-400" : "border-transparent text-slate-500 hover:text-slate-300"}`}>
             {tab}
           </button>
         ))}
+
+        {/* Inline body type radios — only when Body tab is active */}
+        {activePayloadTab === "Body" && (
+          <div className="flex items-center gap-4 ml-auto">
+            {(["none", "form-data", "raw"] as const).map((bt) => {
+              const bodyTypeMap: Record<string, string> = { "none": "none", "form-data": "multipart", "raw": "json" };
+              const isActive = (
+                (bt === "none" && (req.body_type === "none" || (!req.body_type && !req.body && (!req.multipart_body || req.multipart_body.length === 0)))) ||
+                (bt === "form-data" && req.body_type === "multipart") ||
+                (bt === "raw" && (req.body_type === "json" || req.body_type === "raw"))
+              );
+              return (
+                <label key={bt} className="flex items-center gap-1.5 cursor-pointer group">
+                  <span className={`w-3 h-3 rounded-full border-2 flex items-center justify-center transition-colors ${
+                    isActive ? "border-orange-500" : "border-slate-600 group-hover:border-slate-500"
+                  }`}>
+                    {isActive && <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />}
+                  </span>
+                  <span
+                    onClick={() => onUpdate(req.id, { body_type: bodyTypeMap[bt] })}
+                    className={`text-[11px] transition-colors ${
+                      isActive ? "text-slate-200" : "text-slate-500 group-hover:text-slate-400"
+                    }`}
+                  >
+                    {bt}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Payload + Response with draggable divider */}
@@ -502,14 +562,9 @@ export const RequestTabContent = memo(function RequestTabContent({ req, isActive
         {/* Payload area */}
         <div style={{ height: Math.min(payloadHeight.size, maxPayload), minHeight: 0, maxHeight: maxPayload }} className="shrink-0 overflow-hidden p-4">
           
-          {activePayloadTab === "Body" && (
+          {activePayloadTab === "Body" && (req.body_type === "json" || req.body_type === "raw") && (
             <div 
-              className="w-full h-full border border-slate-800 rounded-xl overflow-hidden focus-within:border-orange-500/30 bg-slate-900/50"
-              onKeyDownCapture={(e) => {
-                if (e.ctrlKey && e.key === "Enter") {
-                  e.preventDefault(); e.stopPropagation(); handleSend();
-                }
-              }}>
+              className="w-full h-full border border-slate-800 rounded-xl overflow-hidden focus-within:border-orange-500/30 bg-slate-900/50">
               <CodeMirror
                 value={req.body}
                 extensions={bodyEditorExtensions}
@@ -521,15 +576,28 @@ export const RequestTabContent = memo(function RequestTabContent({ req, isActive
             </div>
           )}
 
+          {activePayloadTab === "Body" && req.body_type === "multipart" && (
+            <KVEditor 
+              items={req.multipart_body || []}
+              onChange={(next) => onUpdate(req.id, { multipart_body: next })}
+              allowFiles={true}
+              placeholderName="Key"
+              placeholderValue="Value"
+            />
+          )}
+
+          {activePayloadTab === "Body" && (req.body_type === "none" || (!req.body_type && !req.body)) && (
+            <div className="w-full h-full flex items-center justify-center border border-dashed border-slate-800 rounded-xl bg-slate-900/20">
+              <p className="text-sm text-slate-600">This request does not have a body</p>
+            </div>
+          )}
+
           {activePayloadTab === "Headers" && (
-            <textarea
-              value={req.headers}
-              onChange={(e) => onUpdate(req.id, { headers: e.target.value })}
-              placeholder="Content-Type: application/json"
-              className="w-full h-full bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-sm font-mono text-slate-300 outline-none resize-none focus:border-orange-500/30 placeholder:text-slate-700"
-              onKeyDown={(e) => {
-                if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); handleSend(); }
-              }}
+            <KVEditor 
+              items={headerFields}
+              onChange={handleHeaderFieldsChange}
+              placeholderName="Header"
+              placeholderValue="Value"
             />
           )}
 

@@ -25,12 +25,26 @@ pub struct SavedRequest {
     pub body: String,
     pub headers: String,
     #[serde(default)]
+    pub body_type: String, // "json", "multipart"
+    #[serde(default)]
+    pub multipart_body: Vec<MultipartField>,
+    #[serde(default)]
     pub auth_type: String, // "none", "bearer", "inherit"
     #[serde(default)]
     pub auth_token: String,
     pub collection_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MultipartField {
+    pub name: String,
+    pub value: String,
+    #[serde(default)]
+    pub is_file: bool,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,6 +262,8 @@ pub fn create_request(
         url: String::new(),
         body: String::new(),
         headers: String::new(),
+        body_type: "json".to_string(),
+        multipart_body: Vec::new(),
         auth_type: if collection_id.is_some() { "inherit".to_string() } else { "none".to_string() },
         auth_token: String::new(),
         collection_id,
@@ -270,6 +286,8 @@ pub fn save_request(
     url: String,
     body: String,
     headers: String,
+    body_type: String,
+    multipart_body: Vec<MultipartField>,
     auth_type: String,
     auth_token: String,
 ) -> Result<SavedRequest, String> {
@@ -281,6 +299,8 @@ pub fn save_request(
     req.url = url;
     req.body = body;
     req.headers = headers;
+    req.body_type = body_type;
+    req.multipart_body = multipart_body;
     req.auth_type = auth_type;
     req.auth_token = auth_token;
     req.updated_at = Utc::now().to_rfc3339();

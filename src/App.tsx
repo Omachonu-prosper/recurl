@@ -247,6 +247,8 @@ function App() {
         url: req.url,
         body: req.body,
         headers: req.headers,
+        bodyType: req.body_type,
+        multipartBody: req.multipart_body,
         authType: req.auth_type,
         authToken: req.auth_token,
       });
