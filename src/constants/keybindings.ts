@@ -9,6 +9,8 @@ export const KEYBINDINGS = [
 	{ key: "l / →", desc: "Expand folder" },
 	{ key: "r", desc: "Rename focused item" },
 	{ key: "dd", desc: "Delete focused item (with confirm)" },
+	{ key: "Enter", desc: "Open focused item" },
+	{ key: "Shift+Q", desc: "Close active tab" },
 	{ key: "Tab", desc: "Toggle sidebar / main focus" },
 	{ key: "/", desc: "Toggle this keybindings popup" },
 ] as const

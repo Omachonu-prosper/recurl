@@ -14,3 +14,10 @@ export interface RequestItem {
 }
 
 export type CollectionItem = FolderItem | RequestItem
+
+export interface OpenTab {
+	id: string
+	name: string
+	type: "folder" | "request"
+	method?: string
+}

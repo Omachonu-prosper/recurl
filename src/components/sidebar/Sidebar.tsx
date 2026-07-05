@@ -3,13 +3,23 @@ import { useKeyboard } from "@opentui/react"
 import { BOLD, colors } from "../../theme"
 import { useCollection } from "../../hooks/useCollection"
 import { CollectionList } from "./CollectionList"
+import type { CollectionItem } from "../../types"
 
 interface SidebarProps {
 	focused: boolean
 	onMouseDown: () => void
+	onOpenItem: (item: CollectionItem) => void
+	onItemRenamed: (id: string, name: string) => void
+	activeTabId: string | null
 }
 
-export function Sidebar({ focused, onMouseDown }: SidebarProps) {
+export function Sidebar({
+	focused,
+	onMouseDown,
+	onOpenItem,
+	onItemRenamed,
+	activeTabId,
+}: SidebarProps) {
 	const [hoveredIcon, setHoveredIcon] = useState<string | null>(null)
 	const [collapsedIds, setCollapsedIds] = useState<string[]>([])
 	const collapsedSet = useMemo(() => new Set(collapsedIds), [collapsedIds])
@@ -34,6 +44,7 @@ export function Sidebar({ focused, onMouseDown }: SidebarProps) {
 	const [deletingId, setDeletingId] = useState<string | null>(null)
 	const lastDPress = useRef(0)
 	const spaceTimestamp = useRef(0)
+	const lastClick = useRef<{ index: number; time: number } | null>(null)
 
 	useEffect(() => {
 		if (pendingRenameId !== null) {
@@ -47,16 +58,26 @@ export function Sidebar({ focused, onMouseDown }: SidebarProps) {
 					setRenamingId(item.id)
 					setRenameValue(item.name)
 					setPendingRenameId(null)
+					onOpenItem(item)
 				}
 			}
 		}
-	}, [displayItems, pendingRenameId])
+	}, [displayItems, pendingRenameId, onOpenItem])
 
 	useEffect(() => {
 		if (focusedIndex >= displayItems.length) {
 			setFocusedIndex(displayItems.length - 1)
 		}
 	}, [displayItems.length, focusedIndex])
+
+	useEffect(() => {
+		if (activeTabId) {
+			const idx = displayItems.findIndex((item) => item.id === activeTabId)
+			if (idx >= 0) {
+				setFocusedIndex(idx)
+			}
+		}
+	}, [activeTabId, displayItems])
 
 	const getParentId = useCallback((): string | null => {
 		if (focusedIndex >= 0) {
@@ -81,11 +102,12 @@ export function Sidebar({ focused, onMouseDown }: SidebarProps) {
 			const trimmed = renameValue.trim()
 			if (trimmed) {
 				renameItem(renamingId, trimmed)
+				onItemRenamed(renamingId, trimmed)
 			}
 			setRenamingId(null)
 			setRenameValue("")
 		}
-	}, [renamingId, renameValue, renameItem])
+	}, [renamingId, renameValue, renameItem, onItemRenamed])
 
 	const handleConfirmDelete = useCallback(() => {
 		if (deletingId !== null) {
@@ -202,11 +224,37 @@ export function Sidebar({ focused, onMouseDown }: SidebarProps) {
 					}
 				}
 				break
+			case "return":
+			case "enter":
+				if (focusedIndex >= 0) {
+					const item = displayItems[focusedIndex]
+					if (item) {
+						onOpenItem(item)
+					}
+				}
+				break
 			case "escape":
 				setFocusedIndex(-1)
 				break
 		}
 	})
+
+	const handleFocusIndex = useCallback(
+		(index: number) => {
+			const now = Date.now()
+			if (
+				lastClick.current &&
+				lastClick.current.index === index &&
+				now - lastClick.current.time < 300
+			) {
+				const item = displayItems[index]
+				if (item) onOpenItem(item)
+			}
+			lastClick.current = { index, time: now }
+			setFocusedIndex(index)
+		},
+		[displayItems, onOpenItem],
+	)
 
 	const deletingItem =
 		deletingId !== null
@@ -263,7 +311,7 @@ export function Sidebar({ focused, onMouseDown }: SidebarProps) {
 					focusedIndex={focusedIndex}
 					renamingId={renamingId}
 					renameValue={renameValue}
-					onFocusIndex={setFocusedIndex}
+					onFocusIndex={handleFocusIndex}
 					onRenameChange={setRenameValue}
 					onRenameSubmit={handleConfirmRename}
 				/>
