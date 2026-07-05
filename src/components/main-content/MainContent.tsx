@@ -1,4 +1,4 @@
-import { BOLD, colors } from "../theme"
+import { BOLD, colors } from "../../theme"
 
 interface MainContentProps {
 	focused: boolean
