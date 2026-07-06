@@ -2,6 +2,7 @@ import { TextAttributes } from "@opentui/core"
 
 export const BOLD = TextAttributes.BOLD
 export const DIM = TextAttributes.DIM
+export const UNDERLINE = TextAttributes.UNDERLINE
 
 export const colors = {
 	base: "#1e1e2e",
