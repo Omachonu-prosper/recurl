@@ -43,6 +43,7 @@ export function App() {
 				activeTabId: item.id,
 			}
 		})
+    focusMain();
 	}, [])
 
 	const handleCloseTab = useCallback((tabId: string) => {
@@ -62,7 +63,7 @@ export function App() {
 			}
 			return { openTabs: newTabs, activeTabId: newActive }
 		})
-	}, [])
+  }, [])
 
 	const handleActivateTab = useCallback((tabId: string) => {
 		setTabState((prev) => ({ ...prev, activeTabId: tabId }))
