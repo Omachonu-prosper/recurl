@@ -40,6 +40,8 @@ export function MainContent({
 	const [openDropdownTabId, setOpenDropdownTabId] = useState<string | null>(
 		null,
 	)
+	const [urlInputFocused, setUrlInputFocused] = useState(false)
+	const [urlInputFocusedByClick, setUrlInputFocusedByClick] = useState(false)
 	const methodPPending = useRef(0)
 
 	const activeTab = activeTabId
@@ -88,8 +90,42 @@ export function MainContent({
 		if (!focused) return
 
 		if (key.name === "escape") {
+			if (urlInputFocused) {
+				setUrlInputFocused(false)
+				setUrlInputFocusedByClick(false)
+				return
+			}
 			if (openDropdownTabId) {
 				setOpenDropdownTabId(null)
+				return
+			}
+			return
+		}
+
+		if (urlInputFocused) {
+			if (urlInputFocusedByClick) {
+				return
+			}
+			const tabId = activeTabId
+			if (!tabId || activeTab?.type !== "request") return
+			if (key.name === "backspace") {
+				setUrl(tabId, getUrl(tabId).slice(0, -1))
+				return
+			}
+			if (key.name === "enter" || key.name === "return") {
+				setUrlInputFocused(false)
+				return
+			}
+			if (key.name.length === 1) {
+				setUrl(tabId, getUrl(tabId) + key.name)
+				return
+			}
+			return
+		}
+
+		if (key.name === "/") {
+			if (activeTabId && activeTab?.type === "request") {
+				setUrlInputFocused(true)
 			}
 			return
 		}
@@ -204,7 +240,7 @@ export function MainContent({
 						paddingBottom={4}
 					/>
 					<text attributes={DIM} fg={colors.subtext0}>
-						api client built for the agentic age
+						TUI api client built for the agentic age
 					</text>
 				</box>
 			</box>
@@ -264,7 +300,15 @@ export function MainContent({
 					<text fg={colors.subtext0}>folder wip</text>
 				</box>
 			) : activeTab && activeTab.type === "request" ? (
-				<box position="relative" flexGrow={1} flexDirection="column">
+				<box
+					position="relative"
+					flexGrow={1}
+					flexDirection="column"
+					onMouseDown={() => {
+						setUrlInputFocused(false)
+						setUrlInputFocusedByClick(false)
+					}}
+				>
 					<box
 						flexDirection="row"
 						alignItems="center"
@@ -273,11 +317,13 @@ export function MainContent({
 						backgroundColor={colors.surface0}
 					>
 						<box
-							onMouseDown={() =>
+							onMouseDown={() => {
+								setUrlInputFocused(false)
+								setUrlInputFocusedByClick(false)
 								setOpenDropdownTabId((prev) =>
 									prev === activeTab.id ? null : activeTab.id,
 								)
-							}
+							}}
 							paddingX={1}
 							backgroundColor={colors.surface1}
 						>
@@ -288,15 +334,34 @@ export function MainContent({
 								{getMethod(activeTab.id)} ▾
 							</text>
 						</box>
-						<input
-							value={getUrl(activeTab.id)}
-							onInput={(v) => setUrl(activeTab.id, v)}
+						<box
 							flexGrow={1}
-						/>
+							height={3}
+							borderStyle="single"
+							borderColor={
+								urlInputFocused ? colors.blue : colors.surface1
+							}
+							onMouseDown={() => {
+								setUrlInputFocused(true)
+								setUrlInputFocusedByClick(true)
+							}}
+						>
+							<input
+								value={getUrl(activeTab.id)}
+								onInput={(v) => setUrl(activeTab.id, v)}
+								flexGrow={1}
+								placeholder="enter url here"
+								backgroundColor={colors.surface0}
+								focusedBackgroundColor={colors.surface1}
+							/>
+						</box>
 						<box
 							backgroundColor={colors.blue}
 							paddingX={2}
-							onMouseDown={() => {}}
+							onMouseDown={() => {
+								setUrlInputFocused(false)
+								setUrlInputFocusedByClick(false)
+							}}
 						>
 							<text attributes={BOLD}>Send</text>
 						</box>

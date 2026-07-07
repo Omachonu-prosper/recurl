@@ -21,7 +21,7 @@ export function App() {
 	})
 
 	useKeyboard((key) => {
-		if (key.name === "/") {
+		if (key.name === "<") {
 			setShowKeybindings((prev) => !prev)
 		}
 	})

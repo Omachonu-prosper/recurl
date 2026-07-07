@@ -13,7 +13,7 @@ export function KeybindPopup({ width, height, onClose }: KeybindPopupProps) {
 	const popupHeight = 18
 
 	useKeyboard((key) => {
-		if (key.name === "/" || key.name === "escape") {
+		if (key.name === "<" || key.name === "escape") {
 			onClose()
 		}
 	})

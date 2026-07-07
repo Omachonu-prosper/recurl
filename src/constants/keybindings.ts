@@ -12,5 +12,5 @@ export const KEYBINDINGS = [
 	{ key: "Enter", desc: "Open focused item" },
 	{ key: "Shift+Q", desc: "Close active tab" },
 	{ key: "Tab", desc: "Toggle sidebar / main focus" },
-	{ key: "/", desc: "Toggle this keybindings popup" },
+	{ key: "<", desc: "Toggle this keybindings popup" },
 ] as const
