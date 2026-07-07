@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react"
 import { BOLD, DIM, UNDERLINE, colors } from "../../theme"
 import type { OpenTab } from "../../types"
+import { Select } from "../select/Select"
 
 interface MainContentProps {
 	focused: boolean
@@ -173,6 +174,9 @@ export function MainContent({
 			case "d":
 				setMethod(tabId, "DELETE")
 				break
+      case "o":
+        setMethod(tabId, "OPTIONS")
+        break
 		}
 	})
 
@@ -327,38 +331,24 @@ export function MainContent({
 						</box>
 					</box>
 					{openDropdownTabId === activeTab.id ? (
-						<box
-							position="absolute"
+						<Select
+							options={METHODS.map((m) => ({
+								label: m,
+								value: m,
+								color: METHOD_COLORS[m],
+							}))}
+							selectedIndex={METHODS.indexOf(
+								getMethod(activeTab.id) as typeof METHODS[number],
+							)}
+							onSelect={(i) => {
+								setMethod(activeTab.id, METHODS[i]!)
+								setOpenDropdownTabId(null)
+							}}
+							onClose={() => setOpenDropdownTabId(null)}
 							top={1}
 							left={1}
 							width={15}
-							backgroundColor={colors.surface1}
-							borderStyle="single"
-							flexDirection="column"
-						>
-							{METHODS.map((m) => (
-								<box
-									key={m}
-									onMouseDown={() => {
-										setMethod(activeTab.id, m)
-										setOpenDropdownTabId(null)
-									}}
-									paddingX={2}
-									backgroundColor={
-										getMethod(activeTab.id) === m
-											? colors.surface0
-											: undefined
-									}
-								>
-									<text
-										fg={METHOD_COLORS[m]}
-										attributes={BOLD}
-									>
-										{m}
-									</text>
-								</box>
-							))}
-						</box>
+						/>
 					) : null}
 				</box>
 			) : null}
